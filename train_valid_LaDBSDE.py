@@ -22,9 +22,6 @@ nr_runs = 1
 neurons = 10
 batch = 128
 
-flag_test = True
-#flag_test = False
-
 #flag_verbose = False
 flag_verbose = True
 
@@ -51,11 +48,9 @@ elif example_type == "BlackScholes":
 elif example_type == "BurgersType":
     bsde = eq.BurgersType(eqn_config)
     bsde_params = "X0_"+str(np.mean(bsde.X0))+"_sigma_"+str(bsde.sigma)
-    
-if flag_test == True:    
-    method_path = "C:/Users/amna/Documents/PhD/Papers/3 Third Paper/UQ/LaDBSDE/Testing/Results_test/"
-else:
-    method_path = "C:/Users/amna/Documents/PhD/Papers/3 Third Paper/UQ/LaDBSDE/Testing/Results_final/"
+
+### Working directory, change as needed
+method_path = "C:/Users/amna/Documents/PhD/Papers/3 Third Paper/UQ/LaDBSDE/Testing/Results_final/"
 
 net_path = method_path + example_type + "/"+ bsde_params + "d_"+str(eqn_config["d"]) + "_T_"+str(eqn_config["T"])+"_N_"+str(eqn_config["N"]) + "/" +  "LR_type_" + str(LR_type) +  "_neurons_" + str(d+neurons) + "_batch_" + str(batch) + "/"
 
