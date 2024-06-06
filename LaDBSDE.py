@@ -1,0 +1,142 @@
+import time
+import numpy as np
+import tensorflow as tf
+
+class BSDESolver(object):
+    """The LaDBSDE solver."""
+    def __init__(self, eqn_config, net_config, bsde):
+        self.eqn_config = eqn_config
+        self.net_config = net_config
+        self.bsde = bsde
+        self.model = ladbsde(eqn_config, net_config, bsde)
+                    
+        alpha_schedule = tf.keras.optimizers.schedules.PiecewiseConstantDecay(
+        self.net_config["alpha_boundaries"], self.net_config["alpha_values"])
+        self.optimizer = tf.keras.optimizers.Adam(learning_rate=alpha_schedule)
+            
+    def train(self):
+        start_time = time.time()
+        training_history = []
+        dW_valid, X_valid, exp_X_valid = self.bsde.sample(self.net_config["B_valid"])
+        Y_N_valid = self.bsde.g_tf(X_valid[:, :, -1])
+        t = self.bsde.t
+        N = self.bsde.N
+        # begin sgd iteration
+        for kappa in range(self.net_config["Kf"]+1):
+            dW_train, X_train, exp_X_train = self.bsde.sample(self.net_config["B"])
+            Y_N_train = self.bsde.g_tf(X_train[:, :, -1])
+            if kappa % self.net_config["k_disp"] == 0:
+                Yhat_valid, Zhat_valid = self.model((t, X_valid, dW_valid))                
+                if self.eqn_config["flag_exact_solution"] == True:
+                    L_train = self.loss_fn((t, X_train, dW_train), Y_N_train).numpy()                 
+                    L_valid = self.loss_fn((t, X_valid, dW_valid), Y_N_valid).numpy()                 
+                    Y_0 = self.bsde.Y_tf(self.bsde.t[0], exp_X_valid[:, :, 0])
+                    Z_0 = self.bsde.Z_tf(self.bsde.t[0], exp_X_valid[:, :, 0])                
+                    Yhat_0 = Yhat_valid[0]
+                    Zhat_0 = Zhat_valid[0]                      
+                    epsy_0 = tf.reduce_mean(tf.pow(Y_0-Yhat_0, 2)).numpy()
+                    epsz_0 = tf.reduce_mean(tf.reduce_sum(tf.pow(Z_0-Zhat_0, 2), axis = 1)).numpy()    
+                else:
+                    L_train = self.loss_fn((t, X_train, dW_train), Y_N_train).numpy()                 
+                    L_valid = self.loss_fn((t, X_valid, dW_valid), Y_N_valid).numpy()                 
+                    Y_0 = self.bsde.Y_tf(self.bsde.t[0], exp_X_valid[:, :, 0])
+                    Yhat_0 = Yhat_valid[0]
+                    epsy_0 = tf.reduce_mean(tf.pow(Y_0-Yhat_0, 2)).numpy()
+                    
+                tau = time.time() - start_time     
+                if self.eqn_config["flag_exact_solution"] == True:
+                    training_history.append([kappa, L_train, L_valid, epsy_0, epsz_0, tau])
+                else:
+                    training_history.append([kappa, L_train, L_valid, epsy_0, tau])
+                    
+                if self.net_config["verbose"]:                    
+                    if self.eqn_config["flag_exact_solution"] == True:
+                        print("kappa: %2u, L_train: %.2e, L_valid: %.2e, epsy_0: %.2e, epsz_0: %.2e time: %2u" % (kappa, L_train, L_valid, epsy_0, epsz_0, tau))
+                    else:
+                        print("kappa: %2u, L_train: %.2e, L_valid: %.2e, epsy_0: %.2e, time: %2u" % (kappa, L_train, L_valid, epsy_0, tau))
+                        
+            self.train_step((t, X_train, dW_train), Y_N_train)                         
+        return np.array(training_history)
+
+    def loss_fn(self, inputs, outputs):
+        t, X, dW = inputs        
+        Yhat, Zhat = self.model(inputs)
+        Y_N = outputs
+        N = self.bsde.N
+        dt = self.bsde.dt
+        L_vec = tf.zeros_like(Y_N)
+        Y_add = []
+        L = 0
+        Y_n = Y_N
+        for m in range(N-1, -1, -1):
+            Y_n = Y_n + self.bsde.f_tf(t[m], X[:, :, m], Yhat[m], Zhat[m])*dt - tf.reduce_sum(Zhat[m]*dW[:, :, m], axis = 1, keepdims=True)
+            Y_add.append(Y_n)            
+        for n in range(0, N):
+            L_vec += tf.square(Yhat[n] - Y_add[N-1-n])
+        L = tf.reduce_mean(L_vec)
+        return L
+
+    def grad(self, inputs, outputs):
+        with tf.GradientTape(persistent=True) as tape:
+            loss = self.loss_fn(inputs, outputs)
+        grad = tape.gradient(loss, self.model.trainable_variables)
+        del tape
+        return grad
+
+    @tf.function
+    def train_step(self, input_train_data, output_train_data):
+        grad = self.grad(input_train_data, output_train_data)
+        self.optimizer.apply_gradients(zip(grad, self.model.trainable_variables))
+
+class ladbsde(tf.keras.Model):
+    def __init__(self, eqn_config, net_config, bsde):
+        super().__init__()
+        self.eqn_config = eqn_config
+        self.net_config = net_config
+        self.bsde = bsde
+        self.DNN_y_z = FeedForwardNet_y_z(eqn_config, net_config, bsde)
+
+    def call(self, inputs, training):
+        t, X, dW = inputs
+        Yhat = []
+        Zhat = []
+        for n in range(0, self.bsde.N):
+            t_n_tf = t[n]*tf.ones(shape=[tf.shape(X)[0], 1])
+            y_n, z_n = self.DNN_y_z((t_n_tf, X[:, :, n]))
+            Yhat.append(y_n)
+            Zhat.append(z_n)
+        return Yhat, Zhat
+
+class FeedForwardNet_y_z(tf.keras.Model):
+    def __init__(self, eqn_config, net_config, bsde):
+        super().__init__()
+        d = eqn_config["d"]
+        self.L = net_config["L"]
+        self.bsde = bsde
+        eta = net_config["eta"]        
+        self.dense_layers = [tf.keras.layers.Dense(eta[l],
+                                                   use_bias=True,
+                                                   activation=None)
+                             for l in range(self.L)]
+        # final output have size 1 for Y
+        self.dense_layers.append(tf.keras.layers.Dense(1, activation=None))
+        
+    def call(self, x):
+        """structure: input -> (dense -> tanh) * L -> dense"""
+        with tf.GradientTape(persistent=True) as tape:
+            t = x[0]
+            X = x[1]
+            tape.watch(X)
+            h = tf.concat([t, X], axis = 1)
+            for l in range(self.L):
+                h = self.dense_layers[l](h)
+                h = tf.tanh(h)
+            y = self.dense_layers[-1](h)
+        dy = tape.gradient(y, X)
+        z = dy*self.bsde.diffusion_tf(t[0], X)
+        del tape
+        return y, z
+
+    def build_graph(self, raw_shape):
+        x = tf.keras.layers.Input(shape=raw_shape)
+        return tf.keras.Model(inputs=[x], outputs=self.call(x))
