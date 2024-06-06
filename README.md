@@ -19,6 +19,7 @@ The results produced are not similar to the ones in [1] as:
 - different metrics are considered
 - learning approach is different; a piecewise constant learning rate approach instead of the learning approach in [1]
 - ln-transform is applied when the diffusion term of the SDE is not constant
+ 
 The results produced from this codes will be referenced in the near future.
 
 # Reference
