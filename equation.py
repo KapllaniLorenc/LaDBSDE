@@ -72,7 +72,7 @@ class SimpleBounded(Equation):
         xSum=tf.reduce_sum(X, axis=1, keepdims = True)
         c1 = (tf.cos(xSum) + tf.sin(xSum)*np.float32(0.2))*expMat
         c2 = - scale*tf.multiply( tf.pow(tf.cos(xSum)*expMat,2),tf.pow(-tf.sin(xSum)*expMat,2))
-        c3 = scale*tf.multiply( tf.pow(Y,2), tf.pow(tf.reduce_mean(Z, axis=1, keepdims = True),2))
+        c3 = scale*(1/self.d)*tf.multiply( tf.pow(Y,2), tf.pow(tf.reduce_sum(Z, axis=1, keepdims = True),2))
         F = c1 + c2 + c3
         return F
     
