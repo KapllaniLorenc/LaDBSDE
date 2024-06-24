@@ -238,8 +238,8 @@ if eqn_config["flag_exact_solution"] == True:
                     epsy_r_0_LDBSDE_RNN[q] = epsy_r(Y_n_test, Yhat_test_LDBSDE_RNN[n])
                     epsy_r_0_LDBSDE_LSTM[q] = epsy_r(Y_n_test, Yhat_test_LDBSDE_LSTM[n])
 
-                    epsz_r_0_LDBSDE_RNN[q] = epsy_r(Z_n_test, Zhat_test_LDBSDE_RNN[n])
-                    epsz_r_0_LDBSDE_LSTM[q] = epsy_r(Z_n_test, Zhat_test_LDBSDE_LSTM[n])                    
+                    epsz_r_0_LDBSDE_RNN[q] = epsz_r(Z_n_test, Zhat_test_LDBSDE_RNN[n])
+                    epsz_r_0_LDBSDE_LSTM[q] = epsz_r(Z_n_test, Zhat_test_LDBSDE_LSTM[n])                    
 
                     
     # Moments of performance metrics
